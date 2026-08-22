@@ -16,7 +16,12 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../static/dist",
+    // "dist" (défaut Vite/Vercel), pas "../static/dist" comme dans le
+    // monorepo xcore-team/Marketplace — là-bas le backend sert le build
+    // depuis un dossier static/ frère de frontend/ (voir main.py), mais ce
+    // repo autonome n'a pas cette arborescence : "../static/dist" écrivait
+    // hors du checkout, Vercel ne trouvait aucun dossier "dist" ensuite.
+    outDir: "dist",
     emptyOutDir: true,
   },
 });
