@@ -485,10 +485,11 @@ export interface ApiKey {
   is_active: boolean
   created_at: string
   last_used_at?: string | null
-  // Clé "personnelle" (xcli login — flux device-code) : pas de projet,
-  // valide pour n'importe quel plugin/service public. Toujours false pour
-  // les clés créées via ce panneau (projet requis) ; true seulement pour
-  // celles nées d'une confirmation /cli/confirm.
+  // Clé "personnelle" : pas de projet, valide pour n'importe quel plugin/
+  // service public. Née d'un `xcli login` (flux device-code, confirmé via
+  // /cli/confirm) OU créée directement ici (devkeys.create sans project_id,
+  // voir ApiKeysSection) — les deux chemins produisent le même type de clé
+  // côté backend (ApiKeyService.create_personal).
   is_personal?: boolean
 }
 
