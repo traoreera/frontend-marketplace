@@ -1016,7 +1016,10 @@ export const devkeys = {
 
   list: () => call<ApiKey[]>("/xdevkeys/api-keys"),
 
-  create: (data: { name: string; project_id: string }) =>
+  // project_id omis → clé "personnelle" (is_personal=true côté réponse),
+  // valide pour n'importe quel plugin/service public plutôt que rattachée
+  // à une seule cible — voir routes/api_keys.py::create_api_key.
+  create: (data: { name: string; project_id?: string }) =>
     call<ApiKeyCreated>("/xdevkeys/api-keys", {
       method: "POST",
       body: JSON.stringify(data),

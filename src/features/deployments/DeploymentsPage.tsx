@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Rocket, Server, ExternalLink,
   KeyRound, Plus, Trash2, FileSignature, Loader2, Folder,
-  Package, Activity, Boxes, Search, Tag, X, Pencil, HardDrive,
+  Package, Activity, Boxes, Search, Tag, X, Pencil, HardDrive, User,
 } from 'lucide-react'
 import { deployments as deploymentsApi, devkeys as devkeysApi, github as githubApi, plugins as pluginsApi, services as servicesApi, xdeployArtifacts as xdeployArtifactsApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
@@ -432,6 +432,28 @@ function ProjectsPanel() {
     onError: (e: Error) => toast(e.message, 'error'),
   })
 
+  // Clé(s) "de compte" — is_personal=true, valides pour n'importe quel
+  // plugin/service public plutôt que limitées à un seul projet (voir
+  // ApiKeyService.create_personal côté backend). Jusqu'ici visible/créable
+  // uniquement via `xcli login` (flux device-code) : signalé comme
+  // confus/manquant, les clés de projet ci-dessus et cette clé-ci
+  // apparaissent maintenant dans deux sections bien séparées plutôt que
+  // mélangées ou invisibles.
+  const personalKeys = (keys ?? []).filter((k) => k.is_personal)
+  const [showCreatePersonal, setShowCreatePersonal] = useState(false)
+  const [personalKeyName, setPersonalKeyName] = useState('')
+
+  const createPersonalKeyMutation = useMutation({
+    mutationFn: () => devkeysApi.create({ name: personalKeyName.trim() }),
+    onSuccess: (created) => {
+      toast('Clé de compte créée.', 'success')
+      setRevealed({ key: created, projectName: created.name })
+      setShowCreatePersonal(false); setPersonalKeyName('')
+      queryClient.invalidateQueries({ queryKey: ['devkeys'] })
+    },
+    onError: (e: Error) => toast(e.message, 'error'),
+  })
+
   const [showSigning, setShowSigning] = useState(false)
   const [signingLabel, setSigningLabel] = useState('')
   const [signingSecret, setSigningSecret] = useState('')
@@ -459,6 +481,69 @@ function ProjectsPanel() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 40 }}>
+      {/* Partagé entre la création d'une clé de compte et d'une clé de
+          projet (voir createPersonalKeyMutation / createKeyMutation) — au
+          niveau racine plutôt que dans l'une des deux sections ci-dessous,
+          pour rester correct quelle que soit celle qui a déclenché `revealed`. */}
+      {revealed && <RevealedKeyBanner created={revealed.key} projectName={revealed.projectName} onDismiss={() => setRevealed(null)} />}
+
+      <div>
+        <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 12 }}>
+          <div className="flex items-center gap-3">
+            <User size={18} style={{ color: 'var(--acc)' }} />
+            <div>
+              <h3 className="font-bold" style={{ fontSize: 18 }}>Clé de compte</h3>
+              <p className="text-xs text-muted mt-1">
+                Valide pour n'importe quel plugin/service public — contrairement aux clés de projet ci-dessous, limitées à une seule cible. Même clé que celle obtenue via <code className="ledger-id">xcli login</code>.
+              </p>
+            </div>
+          </div>
+          {!showCreatePersonal && personalKeys.length === 0 && (
+            <button className="btn btn-primary btn-sm" onClick={() => { setShowCreatePersonal(true); setPersonalKeyName('Clé de compte') }}>
+              <Plus size={14} /> Créer une clé de compte
+            </button>
+          )}
+        </div>
+
+        {showCreatePersonal && (
+          <Panel className="mb-4">
+            <div className="input-wrap mb-3">
+              <label className="input-label">Nom de la clé</label>
+              <input className="input" value={personalKeyName} onChange={(e) => setPersonalKeyName(e.target.value)} placeholder="Ex: mon-laptop" autoFocus />
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-primary btn-sm" disabled={!personalKeyName.trim() || createPersonalKeyMutation.isPending} onClick={() => createPersonalKeyMutation.mutate()}>
+                {createPersonalKeyMutation.isPending ? 'Création…' : 'Créer la clé'}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreatePersonal(false)}>Annuler</button>
+            </div>
+          </Panel>
+        )}
+
+        {personalKeys.length > 0 && (
+          <div className="panel" style={{ overflow: 'hidden' }}>
+            {personalKeys.map((k) => (
+              <div key={k.id} className="list-row" style={{ cursor: 'default' }}>
+                <KeyRound size={13} style={{ color: 'var(--text3)' }} />
+                <div className="list-row__main">
+                  <div className="list-row__title" style={{ color: 'var(--text)' }}>
+                    {k.name}
+                    {k.is_active ? <Pill variant="success">Active</Pill> : <Pill>Révoquée</Pill>}
+                  </div>
+                  <div className="list-row__meta"><span className="ledger-id">{k.prefix}…</span><span>{k.last_used_at ? <>Dernier usage <RelativeTime date={k.last_used_at} /></> : 'Jamais utilisée'}</span></div>
+                </div>
+                <div className="list-row__side">
+                  <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} title="Révoquer la clé" disabled={deleteKeyMutation.isPending}
+                    onClick={() => { if (confirm(`Révoquer la clé de compte "${k.name}" ? Tous les agents qui l'utilisent perdront l'accès, quel que soit le plugin/service.`)) deleteKeyMutation.mutate(k.id) }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div>
         <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div className="flex items-center gap-3">
@@ -470,8 +555,6 @@ function ProjectsPanel() {
           </div>
           <button className="btn btn-primary" onClick={() => setShowCreate((v) => !v)}><Plus size={16} /> Nouveau projet</button>
         </div>
-
-        {revealed && <RevealedKeyBanner created={revealed.key} projectName={revealed.projectName} onDismiss={() => setRevealed(null)} />}
 
         {showCreate && (
           <Panel title="Nouveau projet" className="mb-4">
