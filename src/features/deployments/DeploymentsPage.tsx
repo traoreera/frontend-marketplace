@@ -682,10 +682,20 @@ export default function DeploymentsPage() {
   }
   const groupList = Array.from(groups.values())
 
-  const totals = (items ?? []).reduce(
-    (acc, d) => { acc.total += 1; acc[d.status] = (acc[d.status] ?? 0) + 1; return acc },
-    { total: 0, running: 0, succeeded: 0, failed: 0, pending: 0 } as Record<string, number>,
+  // En cours/Réussis/Échoués comptent le statut du DERNIER déploiement de
+  // chaque projet (même base que la liste ci-dessous, groupList) — pas
+  // chaque événement brut. Avec le compte brut, un projet redéployé 14 fois
+  // (8 échecs historiques puis un succès) affichait "0 Réussis / 8 Échoués"
+  // alors que la ligne juste en dessous montrait un badge "Réussi" bien
+  // vert : les deux ne pouvaient jamais se contredire visuellement puisque
+  // aucun des deux ne racontait la même chose. "Déploiements" reste le
+  // total brut (volume d'activité), la seule mesure pour laquelle compter
+  // chaque tentative a du sens.
+  const totals = groupList.reduce(
+    (acc, g) => { acc[g.latest.status] = (acc[g.latest.status] ?? 0) + 1; return acc },
+    { running: 0, succeeded: 0, failed: 0, pending: 0 } as Record<string, number>,
   )
+  totals.total = (items ?? []).length
 
   const tabs: TabItem<Tab>[] = [
     { id: 'fleet', label: 'Suivi', icon: <Activity size={13} /> },
