@@ -14,9 +14,12 @@ export default function RevealedKeyBanner({
   onDismiss,
 }: {
   created: ApiKeyCreated
+  // Ignoré si created.is_personal — une clé de compte n'est rattachée à
+  // aucun projet, voir le titre/texte de clôture ci-dessous.
   projectName: string
   onDismiss: () => void
 }) {
+  const personal = !!created.is_personal
   const [copiedKey, setCopiedKey] = useState(false)
   const [copiedCred, setCopiedCred] = useState(false)
   const copy = async (value: string, setCopied: (v: boolean) => void) => {
@@ -29,7 +32,8 @@ export default function RevealedKeyBanner({
       className="mb-4"
       title={
         <span className="flex items-center gap-2">
-          <AlertTriangle size={14} style={{ color: 'var(--warning)' }} /> Clé du projet « {projectName} » créée
+          <AlertTriangle size={14} style={{ color: 'var(--warning)' }} />
+          {personal ? 'Clé de compte créée' : <>Clé du projet « {projectName} » créée</>}
         </span>
       }
     >
@@ -48,7 +52,7 @@ export default function RevealedKeyBanner({
             (en-tête <code className="text-acc">X-API-Key</code>)
           </>
         )}{' '}
-        pour la cible de ce projet.
+        {personal ? 'pour vos requêtes personnelles (valide pour tout plugin/service public, pas limitée à un seul projet).' : 'pour la cible de ce projet.'}
       </p>
       <div className="input-label" style={{ marginBottom: 4 }}>xdevkey</div>
       <div className="flex items-center gap-2" style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: '10px 12px' }}>
