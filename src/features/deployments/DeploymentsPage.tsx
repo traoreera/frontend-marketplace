@@ -10,7 +10,7 @@ import { deployments as deploymentsApi, devkeys as devkeysApi, github as githubA
 import { useAuthStore } from '../../stores/auth'
 import { useToast } from '../../components/Toast'
 import { PageLoading } from '../../components/Skeleton'
-import { Tabs, Panel, Pill, StatusIcon, RelativeTime, RevealedKeyBanner } from '../../components/ui'
+import { Tabs, Panel, Pill, StatusIcon, RelativeTime, RevealedKeyBanner, Modal } from '../../components/ui'
 import type { TabItem } from '../../components/ui'
 import type { ApiKey, ApiKeyCreated, Deployment, GHTag, Manifest, ManifestItem, Plugin, Project, ServiceSummary, SigningKey, XDeployArtifact } from '../../types'
 import { parseGithubRepo } from '../../utils/github'
@@ -294,9 +294,41 @@ function ManifestSection({ project }: { project: Project }) {
   )
 }
 
+// Une ligne d'artefact — extraite pour être rendue à l'identique dans le
+// résumé replié (juste la dernière version) et dans la modale (toutes).
+function ArtifactRow({ artifact, isLatest, onDelete, deleting }: {
+  artifact: XDeployArtifact
+  isLatest: boolean
+  onDelete: () => void
+  deleting: boolean
+}) {
+  return (
+    <div className="list-row" style={{ padding: '8px 0', cursor: 'default' }}>
+      <Boxes size={13} style={{ color: 'var(--text3)' }} />
+      <div className="list-row__main">
+        <div className="list-row__title" style={{ color: 'var(--text)', fontSize: 13 }}>
+          v{artifact.version}
+          {isLatest && <Pill variant="success">Dernière</Pill>}
+          <span className="ledger-id" style={{ color: 'var(--text3)' }}>{(artifact.size_bytes / 1024).toFixed(0)} Ko</span>
+        </div>
+        <div className="list-row__meta">
+          <RelativeTime date={artifact.created_at} />
+          <code className="font-mono" style={{ fontSize: 10 }}>{artifact.content_sha256.slice(0, 12)}…</code>
+        </div>
+      </div>
+      <div className="list-row__side">
+        <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} disabled={deleting} title="Supprimer cet artefact" onClick={onDelete}>
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ArtifactsSection({ project }: { project: Project }) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const [showAll, setShowAll] = useState(false)
 
   // xdeploy (app/xdeploy) référence toujours les projets par slug (prj_<hex>,
   // ce que xcore-agent connaît), jamais par l'id interne xdevkeys — voir
@@ -317,6 +349,17 @@ function ArtifactsSection({ project }: { project: Project }) {
   })
 
   const list = artifacts ?? []
+  // Même tri (created_at desc) que ArtifactService.latest() côté backend —
+  // le 1er élément EST la version que GET /v1/projects/{id}/versions/latest
+  // résoudrait.
+  const latest = list[0]
+
+  const confirmDelete = (a: XDeployArtifact, isLatest: boolean) => {
+    const warning = isLatest
+      ? `Supprimer v${a.version} ? C'est la dernière version — les nouveaux déploiements (xcore-agent sans version explicite) retomberont sur la précédente, s'il y en a une.`
+      : `Supprimer l'artefact v${a.version} ? Un déploiement qui en dépend encore ne pourra plus récupérer sa clé.`
+    if (confirm(warning)) deleteMutation.mutate(a.id)
+  }
 
   return (
     <div style={{ borderTop: '1px solid var(--border)', padding: '14px 16px' }}>
@@ -326,6 +369,11 @@ function ArtifactsSection({ project }: { project: Project }) {
           <span className="text-xs font-bold" style={{ color: 'var(--text2)' }}>Artefacts .xdeploy publiés</span>
           {list.length > 0 && <Pill>{list.length}</Pill>}
         </div>
+        {list.length > 1 && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(true)}>
+            <Boxes size={13} /> Voir les {list.length} versions
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -335,38 +383,22 @@ function ArtifactsSection({ project }: { project: Project }) {
           Aucun artefact publié pour ce projet — utilisez <code className="ledger-id">xcore-agent build &amp; publish</code> depuis votre poste (le Hub ne voit jamais le contenu, seulement ces métadonnées une fois scellé).
         </div>
       ) : (
+        // Résumé replié : juste la dernière version — la liste complète vit
+        // dans la modale (bouton ci-dessus), pour ne pas allonger la page
+        // d'un projet avec beaucoup d'historique (voir ArtifactRow).
         <div className="list" style={{ border: 'none' }}>
-          {list.map((a, i) => (
-            <div key={a.id} className="list-row" style={{ padding: '8px 0', cursor: 'default' }}>
-              <Boxes size={13} style={{ color: 'var(--text3)' }} />
-              <div className="list-row__main">
-                <div className="list-row__title" style={{ color: 'var(--text)', fontSize: 13 }}>
-                  v{a.version}
-                  {/* Même tri (created_at desc) que ArtifactService.latest() côté
-                      backend — le 1er élément de cette liste EST la version que
-                      GET /v1/projects/{id}/versions/latest résoudrait. */}
-                  {i === 0 && <Pill variant="success">Dernière</Pill>}
-                  <span className="ledger-id" style={{ color: 'var(--text3)' }}>{(a.size_bytes / 1024).toFixed(0)} Ko</span>
-                </div>
-                <div className="list-row__meta">
-                  <RelativeTime date={a.created_at} />
-                  <code className="font-mono" style={{ fontSize: 10 }}>{a.content_sha256.slice(0, 12)}…</code>
-                </div>
-              </div>
-              <div className="list-row__side">
-                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} disabled={deleteMutation.isPending} title="Supprimer cet artefact"
-                  onClick={() => {
-                    const warning = i === 0
-                      ? `Supprimer v${a.version} ? C'est la dernière version — les nouveaux déploiements (xcore-agent sans version explicite) retomberont sur la précédente, s'il y en a une.`
-                      : `Supprimer l'artefact v${a.version} ? Un déploiement qui en dépend encore ne pourra plus récupérer sa clé.`
-                    if (confirm(warning)) deleteMutation.mutate(a.id)
-                  }}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
+          <ArtifactRow artifact={latest} isLatest onDelete={() => confirmDelete(latest, true)} deleting={deleteMutation.isPending} />
         </div>
+      )}
+
+      {showAll && (
+        <Modal title={<>Artefacts .xdeploy — {project.name}</>} onClose={() => setShowAll(false)}>
+          <div className="list" style={{ border: 'none' }}>
+            {list.map((a, i) => (
+              <ArtifactRow key={a.id} artifact={a} isLatest={i === 0} onDelete={() => confirmDelete(a, i === 0)} deleting={deleteMutation.isPending} />
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   )
@@ -386,6 +418,12 @@ function ProjectsPanel() {
   const [keyName, setKeyName] = useState('')
 
   const { data: projects, isLoading: projectsLoading } = useQuery<Project[]>({ queryKey: ['devkeys-projects'], queryFn: devkeysApi.projects.list })
+
+  // Sidebar de navigation par type — la liste mélangeait plugins/services/
+  // bundles sans distinction visuelle, difficile à parcourir dès que
+  // plusieurs projets de chaque type s'accumulent.
+  const [kindFilter, setKindFilter] = useState<'all' | 'plugin' | 'service' | 'xdeploy'>('all')
+  const filteredProjects = kindFilter === 'all' ? (projects ?? []) : (projects ?? []).filter((p) => p.kind === kindFilter)
 
   const { data: myPlugins } = useQuery<Plugin[]>({ queryKey: ['my-plugins'], queryFn: () => pluginsApi.mine('mine'), enabled: showCreate })
   const { data: myServices } = useQuery<ServiceSummary[]>({ queryKey: ['my-services'], queryFn: servicesApi.mine, enabled: showCreate })
@@ -599,8 +637,33 @@ function ProjectsPanel() {
             <div className="empty__text">Créez un projet de déploiement pour y rattacher une clé API.</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {(projects ?? []).map((p) => {
+          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 24, alignItems: 'start' }}>
+            <nav className="dash-sidebar__nav">
+              {(
+                [
+                  { id: 'all', label: 'Tous', Icon: Folder },
+                  { id: 'plugin', label: 'Plugins', Icon: Package },
+                  { id: 'service', label: 'Services', Icon: Server },
+                  { id: 'xdeploy', label: 'Bundles', Icon: Boxes },
+                ] as const
+              ).map(({ id, label, Icon }) => {
+                const count = id === 'all' ? (projects ?? []).length : (projects ?? []).filter((p) => p.kind === id).length
+                return (
+                  <button key={id} type="button" className={`dash-sidebar__item${kindFilter === id ? ' active' : ''}`} onClick={() => setKindFilter(id)}>
+                    <Icon size={14} /> {label}
+                    <span className="text-xs text-faint" style={{ marginLeft: 'auto' }}>{count}</span>
+                  </button>
+                )
+              })}
+            </nav>
+
+            {filteredProjects.length === 0 ? (
+              <div className="empty" style={{ paddingTop: 24, paddingBottom: 24 }}>
+                <div className="empty__text">Aucun projet de ce type pour l'instant.</div>
+              </div>
+            ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {filteredProjects.map((p) => {
               const pKeys = (keys ?? []).filter((k) => k.project_id === p.id)
               const creating = keyForProject?.id === p.id
               return (
@@ -670,6 +733,8 @@ function ProjectsPanel() {
                 </div>
               )
             })}
+            </div>
+            )}
           </div>
         )}
       </div>
