@@ -438,6 +438,14 @@ input:focus-visible {
 
 .page {
   padding-top: var(--nav-h);
+  /* Marge de sécurité pour .toast-container (position: fixed, bottom/right
+     24px, jusqu'à ~380px de large) — sans elle, un toast atterrit pile sur
+     le dernier bloc d'une page dont le contenu finit près du bas/droite du
+     viewport (ex: SettingsPage, la carte "Comptes liés" + son bouton
+     "Délier" tout en bas de la colonne de droite). Constaté en conditions
+     réelles : "Session révoquée." recouvrait le bouton juste utilisé pour
+     la déclencher. */
+  padding-bottom: 100px;
   min-height: 100vh;
 }
 

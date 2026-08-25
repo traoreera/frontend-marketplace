@@ -69,6 +69,28 @@ export class APIError extends Error {
   }
 }
 
+// Notifie l'app qu'une session s'est terminée (refresh_token invalide/
+// expiré, ou un `call()` a échoué même après refresh) — enregistré par
+// stores/auth.ts. Un simple callback plutôt qu'un import direct du store
+// Zustand ici : stores/auth.ts importe déjà depuis ce module (authApi,
+// setToken, teamsApi), un import dans l'autre sens créerait un cycle.
+// Sans ce hook, tryRefresh() vidait déjà le localStorage sur un refresh
+// raté, mais le store `user` restait périmé (toujours "connecté" en
+// apparence) : RequireAuth ne réagit qu'à `user`, jamais direct à
+// localStorage, donc rien ne renvoyait vers /auth — constaté en
+// conditions réelles : le token expire, l'UI reste plantée sur des appels
+// qui échouent en boucle au lieu de se déconnecter proprement.
+let _onSessionExpired: (() => void) | null = null;
+export function setOnSessionExpired(handler: (() => void) | null) {
+  _onSessionExpired = handler;
+}
+
+function _clearSession() {
+  setToken(null);
+  setRefreshToken(null);
+  _onSessionExpired?.();
+}
+
 let _refreshing: Promise<string | null> | null = null;
 
 export async function tryRefresh(): Promise<string | null> {
@@ -83,8 +105,7 @@ export async function tryRefresh(): Promise<string | null> {
   })
     .then(async (r) => {
       if (!r.ok) {
-        setToken(null);
-        setRefreshToken(null);
+        _clearSession();
         return null;
       }
       const data: TokenResponse = await r.json();
@@ -93,8 +114,7 @@ export async function tryRefresh(): Promise<string | null> {
       return data.access_token;
     })
     .catch(() => {
-      setToken(null);
-      setRefreshToken(null);
+      _clearSession();
       return null;
     })
     .finally(() => {
