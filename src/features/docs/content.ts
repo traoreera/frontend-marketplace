@@ -291,66 +291,79 @@ Purge les anciens instantanés de rollback et les téléchargements en cache —
   },
   {
     id: 'install-local',
-    label: 'Installer en local',
-    title: 'Installer un plugin ou un service en local',
+    label: 'xcli — installer en local',
+    title: 'xcli — installer un plugin ou un service en local',
     content: `
-Pour ajouter un plugin ou un service déjà publié sur le Hub à **votre propre projet xcore** (pas pour le publier vous-même), l'outil est \`xcli\` (le paquet \`xcorecli\`) — une CLI de gestion de projet distincte de \`xcore-agent\`, à lancer **depuis l'intérieur** d'un projet xcore (elle lit son \`integration.yaml\`).
+Pour ajouter un plugin ou un service déjà publié sur le Hub à **votre propre projet xcore** (pas pour le publier vous-même), l'outil est \`xcli\` (le paquet \`xcorecli\`) — une CLI de gestion de projet complète (créer un projet, scaffolder un plugin, piloter le runtime local...), pas seulement un client marketplace. Sauf mention contraire, les commandes ci-dessous se lancent **depuis l'intérieur** d'un projet xcore (elle lit son \`integration.yaml\`) — voir *Créer un projet xcore* plus bas si vous n'en avez pas encore un.
 
-## Installer
+## Installer xcli
 
 \`\`\`bash
 pip install xcorecli
 \`\`\`
 
-### Configurer les identifiants (une fois)
+## S'authentifier
 
-Deux secrets distincts sont nécessaires — l'un ne remplace pas l'autre :
+Deux secrets distincts sont utilisés — l'un ne remplace pas l'autre : une **clé API** (\`xdk_...\`, autorise le téléchargement) et une **clé de signature** (vérifie le HMAC du ZIP téléchargé avant extraction). Deux façons de les configurer :
+
+### Option recommandée — \`xcli login\`
+
+\`\`\`bash
+xcli login
+\`\`\`
+
+Ouvre le Hub dans votre navigateur avec un code à 6 chiffres à confirmer (flow *device-code*, RFC 8628) — une fois confirmé côté site, \`xcli\` récupère automatiquement **les deux secrets** et les écrit dans \`~/.xcli/config.json\`. Rien à copier-coller, rien affiché en clair dans le terminal.
+
+La clé obtenue est une **clé de compte** (voir Déploiements → Projets & clés → *Clé de compte*) : valide pour installer n'importe quel plugin/service **public**, quel que soit le projet \`xdevkeys\` — contrairement à une clé de projet, limitée à une seule cible. Pour un plugin/service **privé**, il faut une clé de *projet* dédiée (option manuelle ci-dessous).
+
+### Option manuelle — \`xcli config\`
 
 \`\`\`bash
 xcli config set api-key xdk_...           # autorise le téléchargement
 xcli config set signing-key <secret>       # vérifie la signature HMAC du ZIP téléchargé
+xcli config show                           # vérifie ce qui est enregistré (valeurs masquées)
 \`\`\`
 
-Les deux sont visibles une seule fois à la création — depuis **Déploiements → Projets & clés** (clé API, projet \`kind=plugin\` dont le slug correspond exactement au plugin visé) et **Déploiements → Clé de signature**.
+Nécessaire pour une clé de **projet** — révélée une seule fois depuis **Déploiements → Projets & clés** (clé API, projet \`kind=plugin\`/\`kind=service\` dont le slug correspond exactement à la cible) et **Déploiements → Clé de signature**.
 
-### Parcourir le catalogue (sans identifiants — public)
+## Parcourir le catalogue
 
 \`\`\`bash
-xcli plugin marketplace browse --sort downloads
+xcli plugin marketplace browse --sort downloads   # ou: newest (défaut) | rating
 xcli plugin marketplace search "auth"
 xcli plugin marketplace info xlicense
+xcli plugin marketplace mine                       # vos plugins à VOUS, publics ET privés (nécessite xcli login/config)
+
+# Même chose côté services :
+xcli service marketplace browse
+xcli service marketplace search "cache"
+xcli service marketplace info mon-service
 \`\`\`
 
-### Installer un plugin
+\`browse\`/\`search\`/\`info\` sont **publics**, sans identifiants — ils ne voient que les plugins/services publics. \`mine\` est la seule à nécessiter une clé API : elle appelle \`GET /plugins/mine\` avec \`X-API-Key\` pour lister aussi vos plugins **privés**, la même auth que \`plugin install\` utilise déjà avec succès pour en télécharger un.
+
+## Installer un plugin
 
 \`\`\`bash
 xcli plugin install xlicense              # dernière version
 xcli plugin install xlicense@1.2.3        # version précise
 xcli plugin versions xlicense             # lister les versions disponibles avant de choisir
+xcli install xlicense                     # raccourci pour "xcli plugin install"
 \`\`\`
 
 Le ZIP est téléchargé, sa signature HMAC vérifiée avant toute extraction — en cas d'échec de vérification, **rien n'est extrait**. Le plugin atterrit dans le dossier \`plugins/\` de votre projet (configurable via \`plugins.directory\` dans \`integration.yaml\`).
 
-### Mettre à jour un plugin déjà installé
-
-\`\`\`bash
-xcli plugin update check                  # compare toutes les versions installées au Hub
-xcli plugin update apply xlicense          # met à jour un plugin précis
-xcli plugin update apply --all --dry-run   # aperçu sans rien télécharger
-\`\`\`
-
-### Vérifier l'intégrité
-
-\`\`\`bash
-xcli plugin health   # signature + AST + validité du manifeste, pour tous les plugins installés
-xcli plugin info xlicense
-\`\`\`
-
 ## Installer un service
 
-\`xcli\` n'a pas encore de sous-commande dédiée pour les services (\`xcli plugin install\` est spécifique aux plugins). Deux options en attendant :
+\`\`\`bash
+xcli service install mon-service          # dernière version
+xcli service install mon-service@1.2.3    # version précise
+xcli service versions mon-service
+\`\`\`
 
-**Avec \`xcore-agent\`** (recommandé — gère aussi le redémarrage du service) :
+Même mécanique que pour un plugin (signature vérifiée, rien d'extrait en cas d'échec). Deux autres façons d'installer un service si vous préférez ne pas passer par \`xcli\` :
+
+**Avec \`xcore-agent\`** (recommandé en production — gère aussi le redémarrage du service) :
 
 \`\`\`bash
 xcore-agent deploy-marketplace mon-service \\\\
@@ -368,6 +381,136 @@ curl -sS "https://marketplace.xcorehub.dev/app/xservices/services/mon-service/in
   -o mon-service.zip
 # réponse : en-têtes X-Signature (hmac_sha256:<hex>) et X-Service (nom@version) à vérifier avant extraction
 \`\`\`
+
+## Mettre à jour
+
+\`\`\`bash
+xcli plugin update check                  # compare toutes les versions installées au Hub
+xcli plugin update apply xlicense          # met à jour un plugin précis
+xcli plugin update apply --all --dry-run   # aperçu sans rien télécharger
+\`\`\`
+
+## Vérifier l'intégrité
+
+\`\`\`bash
+xcli plugin health           # signature + AST + validité du manifeste, pour tous les plugins installés
+xcli plugin info xlicense
+xcli service health          # même chose côté services
+xcli service info mon-service
+\`\`\`
+
+## Créer un projet xcore
+
+Si vous n'avez pas encore de projet pour installer quoi que ce soit dedans :
+
+\`\`\`bash
+xcli init mon-app --db sqlite       # ou --db postgres/mysql --db-url ...
+cd mon-app
+pip install -r requirements.txt
+xcli manager start --reload         # lance l'API en local, rechargement à chaud
+\`\`\`
+
+Diagnostics une fois le projet démarré :
+
+\`\`\`bash
+xcli health      # health-check global de tous les services (DB, cache, ...)
+xcli services     # statut détaillé de chaque service configuré
+\`\`\`
+
+## Développer un plugin en local (sans passer par le Hub)
+
+\`\`\`bash
+xcli plugin local scaffold mon_plugin --db --cache     # génère un plugin.yaml + squelette dans plugins/
+xcli plugin local link ../mon-plugin-externe            # symlink un dossier externe dans plugins/
+xcli plugin local list                                  # liste tout, y compris les symlinks
+\`\`\`
+
+Une fois chargé (installé, scaffoldé ou lié), le runtime local se pilote directement — sans redémarrer tout le processus :
+
+\`\`\`bash
+xcli plugin runtime reload mon_plugin     # recharge le code + la config
+xcli plugin runtime reload-all
+xcli plugin runtime status
+xcli plugin runtime call mon_plugin mon_action --payload '{"x": 1}'
+\`\`\`
+
+## Signer manuellement
+
+Utilisé en interne par le pipeline de publication — rarement nécessaire à la main, mais disponible pour inspecter/déboguer :
+
+\`\`\`bash
+xcli plugin security sign ./mon-plugin --key <secret-hmac>
+xcli plugin security verify ./mon-plugin --key <secret-hmac>
+xcli plugin security validate ./mon-plugin
+\`\`\`
+`,
+  },
+  {
+    id: 'install-yaml',
+    label: 'xcore-agent — install.yaml',
+    title: 'xcore-agent — écrire, valider et résoudre un install.yaml',
+    content: `
+\`install.yaml\` décrit ce qu'un projet xcore doit installer — un ou plusieurs plugins/extensions, chacun avec sa propre source (marketplace, Git, ou rien si le code est déjà dans l'arbre). C'est le fichier central des **deux** mécanismes de déploiement \`xcore-agent\` (bundle \`.xdeploy\` scellé, ou résolution directe en place) — les commandes ci-dessous s'appliquent aux deux.
+
+## Générer un point de départ
+
+\`\`\`bash
+xcore-agent init-plan mon-projet \\\\
+  --plugin auth --plugin xdevkeys \\\\
+  --extension pubsub \\\\
+  --version 1.0.0 \\\\
+  --env-template auth=plugins/auth/.env.template \\\\
+  --output deployment/install.yaml
+\`\`\`
+
+Un pas \`install_plugin\`/\`install_extension\` par \`--plugin\`/\`--extension\` donné (dans l'ordre), un pas \`write_env\` par \`--env-template\`, un pas \`start\` qui dépend de tout le reste, et un healthcheck final (désactivable avec \`--no-healthcheck\`, timeout/retries réglables via \`--healthcheck-timeout\`/\`--healthcheck-retries\`). Le résultat est **validé automatiquement** avant d'être écrit — garanti chargeable tel quel par \`validate\`/\`deploy\`/\`deploy-marketplace\`, mais reste un point de départ à ajuster à la main, pas un fichier final. \`--force\` pour écraser un \`--output\` déjà existant.
+
+## Valider (aucun réseau, aucune source résolue)
+
+\`\`\`bash
+xcore-agent validate deployment/install.yaml
+xcore-agent validate deployment/install.yaml --manifest-json manifest.json   # + un manifest.json en plus
+\`\`\`
+
+Vérifie juste que le YAML est structurellement correct et affiche l'ordre d'exécution résolu (dépendances entre étapes) — rien n'est téléchargé, aucune source contactée. Le premier réflexe avant de committer un \`install.yaml\` modifié à la main.
+
+## Déclarer une source marketplace sur une étape
+
+\`\`\`yaml
+steps:
+  - id: install_auth
+    action: install_plugin
+    plugin: auth
+    source:
+      marketplace_slug: xauth
+      marketplace_version: 1.0.0
+\`\`\`
+
+Chaque étape \`install_plugin\`/\`install_extension\` peut déclarer sa propre \`source:\` (marketplace ou Git). Une étape sans \`source:\` suppose que le code est déjà présent dans l'arbre — rien à résoudre pour elle.
+
+## Résoudre une fois — \`resolve-sources\`
+
+\`\`\`bash
+xcore-agent resolve-sources /chemin/vers/mon-projet \\\\
+  --marketplace-api-key xdk_... \\\\
+  --marketplace-signing-secret <secret>
+\`\`\`
+
+Télécharge et vérifie (HMAC) chaque \`source:\` déclarée, directement dans les répertoires \`plugins/\`/\`extensions/\` du projet — **aucun artefact \`.xdeploy\`, aucun Hub xdeploy, aucune signature Ed25519 impliquée**. Conçu pour un projet qui résout **ses propres** sources contre lui-même, typiquement une image Docker qui reconstruit ses plugins marketplace au démarrage (\`docker-entrypoint.sh\`), avant que l'app en dessous ne les charge. \`--marketplace-api-key\`/\`--marketplace-signing-secret\` se lisent aussi depuis les variables d'env \`XCORE_MARKETPLACE_API_KEY\`/\`XCORE_MARKETPLACE_SIGNING_SECRET\` — inutiles si aucune étape n'a de \`source: {marketplace_slug: ...}\`. \`--git-token HOST=TOKEN\` (répétable) pour un hôte Git privé ; les dépôts publics et les URLs SSH n'en ont besoin d'aucun.
+
+## Résoudre en continu — \`watch-sources\`
+
+\`\`\`bash
+xcore-agent watch-sources /chemin/vers/mon-projet \\\\
+  --marketplace-api-key xdk_... --marketplace-signing-secret <secret> \\\\
+  --interval 300 --exit-on-update
+\`\`\`
+
+Sonde le marketplace toutes les \`--interval\` secondes et re-résout (en place) chaque source dont une nouvelle version a été publiée — le pendant multi-sources de \`watch-marketplace\` pour un projet qui **dépend de** plusieurs plugins/extensions marketplace indépendants plutôt que d'**en être un lui-même** (\`watch-marketplace\` rejoue tout \`install.yaml\` à travers un seul artefact récupéré, ce qui casse dès qu'une deuxième étape déclare sa propre \`source:\`).
+
+\`--exit-on-update\` quitte (code 0) juste après avoir appliqué au moins une mise à jour, plutôt que de continuer à sonder — pensé pour un superviseur de process qui relance tout le processus pour prendre en compte les fichiers réécrits (cette commande ne redémarre jamais rien elle-même). \`--once\` fait une seule vérification puis quitte, pour un cron externe plutôt qu'un process qui tourne en continu.
+
+Ni \`resolve-sources\` ni \`watch-sources\` ne touchent aux étapes \`start\`/\`healthcheck\` d'\`install.yaml\`, ni ne redémarrent quoi que ce soit — contrairement à \`deploy\`/\`watch\` (artefact \`.xdeploy\`) ou \`deploy-marketplace\`/\`watch-marketplace\` (ZIP marketplace direct), qui exécutent le plan complet via l'\`InstallDriver\`.
 `,
   },
 ]
